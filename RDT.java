@@ -89,22 +89,24 @@ public class RDT {
 		for (int i=0; i<numOfSegments; i++) {
 			segmentArray[i]=new RDTSegment();
 			if (i==numOfSegments-1) {
-				for (int j=0; j<size-(i*100); j++) {
-					segmentArray[i].data[j]=data[(i*100)+j];
+				for (int j=0; j<size-(i*MSS); j++) {
+					segmentArray[i].data[j]=data[(i*MSS)+j];
 				}
-				segmentArray[i].length=size-(i*100);
+				segmentArray[i].length=size-(i*MSS);
 			}
 			else {
 				for (int j=0; j<MSS; j++) {
-					segmentArray[i].data[j]=data[(i*100)+j];
+					segmentArray[i].data[j]=data[(i*MSS)+j];
 				}
 				segmentArray[i].length=MSS;
 			}
 			//segmentArray[i].dump();
+			
+			// put each segment into sndBuf
+			sndBuf.putNext(segmentArray[i]);
+			// send using udp_send()
+			Utility.udp_send(segmentArray[i],socket,dst_ip,dst_port);
 		}
-		// put each segment into sndBuf
-		
-		// send using udp_send()
 		
 		// schedule timeout for segment(s) 
 			
