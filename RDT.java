@@ -9,6 +9,7 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.lang.Math;
 
 public class RDT {
 
@@ -83,7 +84,24 @@ public class RDT {
 		//****** complete
 		
 		// divide data into segments
-		
+		double numOfSegments = Math.ceil(((double) size)/MSS);
+		RDTSegment[] segmentArray = new RDTSegment[(int) numOfSegments];
+		for (int i=0; i<numOfSegments; i++) {
+			segmentArray[i]=new RDTSegment();
+			if (i==numOfSegments-1) {
+				for (int j=0; j<size-(i*100); j++) {
+					segmentArray[i].data[j]=data[(i*100)+j];
+				}
+				segmentArray[i].length=size-(i*100);
+			}
+			else {
+				for (int j=0; j<MSS; j++) {
+					segmentArray[i].data[j]=data[(i*100)+j];
+				}
+				segmentArray[i].length=MSS;
+			}
+			//segmentArray[i].dump();
+		}
 		// put each segment into sndBuf
 		
 		// send using udp_send()
