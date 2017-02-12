@@ -100,6 +100,7 @@ public class RDT {
 				}
 				segmentArray[i].length=MSS;
 			}
+			segmentArray[i].seqNum=sndBuf.next+1;
 			//segmentArray[i].dump();
 			
 			// put each segment into sndBuf
@@ -120,8 +121,20 @@ public class RDT {
 	public int receive (byte[] buf, int size)
 	{
 		//*****  complete
+		int numberOfBytesCopied = 0;
+		RDTSegment seg = rcvBuf.getNext();
+		if (size < seg.length) {
+			numberOfBytesCopied = size;
+		}
+		else {
+			numberOfBytesCopied = seg.length;
+		}
+
+		for (int i=0; i<numberOfBytesCopied; i++) {
+			buf[i] = seg.data[i];
+		}
 		
-		return 0;   // fix
+		return numberOfBytesCopied;
 	}
 	
 	// called by app
@@ -171,10 +184,19 @@ class RDTBuffer {
 	
 	// return the next in-order segment
 	public RDTSegment getNext() {
+		RDTSegment seg = null;
+		try {
+			semFull.acquire();
+			semMutex.acquire(); // wait for mutex 
+				seg = buf[base%size];
+				base++;  
+			semMutex.release();
+			semEmpty.release();
+		} catch(InterruptedException e) {
+			System.out.println("Buffer get(): " + e);
+		}
 		
-		// **** Complete
-		
-		return null;  // fix 
+		  return seg;// fix */
 	}
 	
 	// Put a segment in the *right* slot based on seg.seqNum
@@ -219,6 +241,40 @@ class ReceiverThread extends Thread {
 		//                if seg contains data, put the data in rcvBuf and do any necessary 
 		//                             stuff (e.g, send ACK)
 		//
+		int nextExpectedSequenceNumber = 1;
+		int ackSequenceNumber = 1;
+		while (true) {
+			byte[] payload = new byte[RDT.MSS + RDTSegment.HDR_SIZE];
+			DatagramPacket pkt = new DatagramPacket(payload, payload.length);
+			RDTSegment segment = new RDTSegment();
+			try {
+				socket.receive(pkt);
+			} catch (Exception e) {
+				System.out.println("socket.receive: " + e);
+			}
+			
+			makeSegment(segment, payload);
+			/*if (!segment.isValid()) {
+				continue;
+			}*/
+			if (segment.containsAck()) {
+				sndBuf.getNext();
+				continue;
+			}
+			if (segment.seqNum == nextExpectedSequenceNumber) {
+				rcvBuf.putNext(segment);
+				RDTSegment ackSegment = new RDTSegment();
+				ackSegment.seqNum = ackSequenceNumber;
+				ackSegment.ackNum=segment.seqNum;
+				Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
+				ackSequenceNumber++;
+				nextExpectedSequenceNumber++;
+				//segment.dump();
+				continue;
+			}
+			
+
+		}
 	}
 	
 	

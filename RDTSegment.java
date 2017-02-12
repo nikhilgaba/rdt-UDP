@@ -47,7 +47,12 @@ public class RDTSegment {
 	
 	public boolean containsAck() {
 		// complete
-		return true;
+		if (ackNum != 0) {
+			return true;
+		}
+		else {
+			return false;
+		}
 	}
 	
 	public boolean containsData() {
@@ -57,11 +62,40 @@ public class RDTSegment {
 
 	public int computeChecksum() {
 		// complete
-		return 0;
+		int csum = 0;
+        csum += (0xff & (((seqNum & 0xff000000) >> 24) + 
+                         ((seqNum & 0x00ff0000) >> 16) + 
+                         ((seqNum & 0x0000ff00) >> 8) + 
+                          (seqNum & 0x000000ff)));
+        csum += (0xff & (((ackNum & 0xff000000) >> 24) + 
+                         ((ackNum & 0x00ff0000) >> 16) + 
+                         ((ackNum & 0x0000ff00) >> 8) + 
+                          (ackNum & 0x000000ff)));
+        csum += (0xff & (((flags & 0xff000000) >> 24) + 
+                         ((flags & 0x00ff0000) >> 16) + 
+                         ((flags & 0x0000ff00) >> 8) + 
+                          (flags & 0x000000ff)));
+        csum += (0xff & (((checksum & 0xff000000) >> 24) + 
+                         ((checksum & 0x00ff0000) >> 16) + 
+                         ((checksum & 0x0000ff00) >> 8) + 
+                          (checksum & 0x000000ff)));
+        csum += (0xff &(((rcvWin & 0xff000000) >> 24) + 
+                        ((rcvWin & 0x00ff0000) >> 16) + 
+                        ((rcvWin & 0x0000ff00) >> 8) + 
+                         (rcvWin & 0x000000ff)));
+        csum += (0xff & (((length & 0xff000000) >> 24) + 
+                         ((length & 0x00ff0000) >> 16) + 
+                         ((length & 0x0000ff00) >> 8) + 
+                          (length & 0x000000ff)));
+        
+        for (int i=0; i<length;i++)
+            csum += (0xff & data[i]);
+        
+        return (0xff & csum);
 	}
 	public boolean isValid() {
-		// complete
-		return true;
+		// we use 8-bitchecksum
+        return ((0xff==computeChecksum()) ? true:false) ;
 	}
 	
 	// converts this seg to a series of bytes
