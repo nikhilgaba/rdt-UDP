@@ -33,7 +33,17 @@ class TimeoutHandler extends TimerTask {
 		// complete 
 		switch(RDT.protocol){
 			case RDT.GBN:
-				
+				try {
+					sndBuf.semMutex.acquire();
+					for (int i=sndBuf.base; i<sndBuf.next; i++) {
+						Utility.udp_send(sndBuf.buf[sndBuf.base%sndBuf.size],socket,ip,port);
+					}
+					sndBuf.semMutex.release();
+				} catch(InterruptedException e) {
+					System.out.println("TimeoutHandler error: " + e);
+				}
+				seg.timeoutHandler = new TimeoutHandler(sndBuf,seg,socket,ip,port);
+				RDT.timer.schedule(seg.timeoutHandler, RDT.RTO);
 				break;
 			case RDT.SR:
 				

@@ -14,7 +14,7 @@ import java.lang.Math;
 public class RDT {
 
 	public static final int MSS = 100; // Max segement size in bytes
-	public static final int RTO = 500; // Retransmission Timeout in msec
+	public static final int RTO = 5000; // Retransmission Timeout in msec
 	public static final int ERROR = -1;
 	public static final int MAX_BUF_SIZE = 3;  
 	public static final int GBN = 1;   // Go back N protocol
@@ -100,16 +100,44 @@ public class RDT {
 				}
 				segmentArray[i].length=MSS;
 			}
-			segmentArray[i].seqNum=sndBuf.next+1;
+			try {
+				sndBuf.semMutex.acquire();
+				segmentArray[i].seqNum=sndBuf.next;
+				sndBuf.semMutex.release();
+			} catch(InterruptedException e) {
+				System.out.println("semMutex error:  " + e);
+			}
+
 			//segmentArray[i].dump();
 			
 			// put each segment into sndBuf
 			sndBuf.putNext(segmentArray[i]);
+			segmentArray[i].timeoutHandler = new TimeoutHandler(sndBuf,segmentArray[i],socket,dst_ip,dst_port);
 			// send using udp_send()
+			System.out.println("Nikhil segnumber:"+segmentArray[i].seqNum);
 			Utility.udp_send(segmentArray[i],socket,dst_ip,dst_port);
-		}
-		
-		// schedule timeout for segment(s) 
+
+			// schedule timeout for segment(s)
+			try {
+				sndBuf.semMutex.acquire();
+				if (protocol == GBN && (segmentArray[i].seqNum==sndBuf.base)) {
+					System.out.println("Timeout started in send()");
+					try {
+						timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler,RTO);
+					} catch (Exception e) {
+						System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
+					}
+					
+				}
+				else if (protocol == SR) {
+
+				}
+				sndBuf.semMutex.release();
+			} catch(InterruptedException e) {
+				System.out.println("semMutex error:  " + e);
+			}
+			
+		} 
 			
 		return size;
 	}
@@ -241,8 +269,8 @@ class ReceiverThread extends Thread {
 		//                if seg contains data, put the data in rcvBuf and do any necessary 
 		//                             stuff (e.g, send ACK)
 		//
-		int nextExpectedSequenceNumber = 1;
-		int ackSequenceNumber = 1;
+		int expectedSequenceNumber = 0;
+		int ackSequenceNumber = 0;
 		while (true) {
 			byte[] payload = new byte[RDT.MSS + RDTSegment.HDR_SIZE];
 			DatagramPacket pkt = new DatagramPacket(payload, payload.length);
@@ -257,22 +285,49 @@ class ReceiverThread extends Thread {
 			/*if (!segment.isValid()) {
 				continue;
 			}*/
-			if (segment.containsAck()) {
-				sndBuf.getNext();
+			if (segment.containsAck() && (RDT.protocol == RDT.GBN)) {
+				if (segment.ackNum == sndBuf.base) {
+					RDTSegment segmentToCancel = sndBuf.getNext();
+					segmentToCancel.timeoutHandler.cancel();
+					try {
+						System.out.println("Schedule timer in receivethread");
+						sndBuf.semMutex.acquire();
+						try {
+							RDT.timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler, RDT.RTO);
+						} catch (Exception e) {
+							System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
+						}
+						sndBuf.semMutex.release();
+					} catch (InterruptedException e) {
+						System.out.println("receivethread timer error: " + e);
+					}
+
+				}
 				continue;
 			}
-			if (segment.seqNum == nextExpectedSequenceNumber) {
-				rcvBuf.putNext(segment);
+			else if (segment.containsAck() && (RDT.protocol == RDT.SR)) {
+
+			}
+			if (segment.containsData() && (RDT.protocol == RDT.GBN)) {
 				RDTSegment ackSegment = new RDTSegment();
+				if (segment.seqNum == expectedSequenceNumber) {
+					rcvBuf.putNext(segment);
+					ackSegment.ackNum=segment.seqNum;
+					expectedSequenceNumber++;
+				}
+				else {
+					ackSegment.ackNum=expectedSequenceNumber-1;
+				}
 				ackSegment.seqNum = ackSequenceNumber;
-				ackSegment.ackNum=segment.seqNum;
-				Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
 				ackSequenceNumber++;
-				nextExpectedSequenceNumber++;
-				//segment.dump();
+				ackSegment.flags = RDTSegment.FLAGS_ACK;
+				Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
 				continue;
+
+			} 
+			else if (segment.containsData() && (RDT.protocol == RDT.SR)) {
+
 			}
-			
 
 		}
 	}

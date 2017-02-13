@@ -47,7 +47,7 @@ public class RDTSegment {
 	
 	public boolean containsAck() {
 		// complete
-		if (ackNum != 0) {
+		if (flags == FLAGS_ACK) {
 			return true;
 		}
 		else {
@@ -57,7 +57,12 @@ public class RDTSegment {
 	
 	public boolean containsData() {
 		// complete
-		return true;
+		if (length != 0) {
+			return true;
+		}
+		else {
+			return false;
+		}
 	}
 
 	public int computeChecksum() {
