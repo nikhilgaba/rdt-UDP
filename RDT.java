@@ -1,4 +1,5 @@
 
+/*Nikhil Gaba. nga11@sfu.ca. Student #: 301 100 455*/
 /**
  * @author mohamed
  *
@@ -14,12 +15,12 @@ import java.lang.Math;
 public class RDT {
 
 	public static final int MSS = 100; // Max segement size in bytes
-	public static final int RTO = 5000; // Retransmission Timeout in msec
+	public static final int RTO = 500; // Retransmission Timeout in msec
 	public static final int ERROR = -1;
 	public static final int MAX_BUF_SIZE = 3;  
 	public static final int GBN = 1;   // Go back N protocol
 	public static final int SR = 2;    // Selective Repeat
-	public static final int protocol = GBN;
+	public static final int protocol = SR;
 	
 	public static double lossRate = 0.0;
 	public static Random random = new Random(); 
@@ -108,20 +109,18 @@ public class RDT {
 				System.out.println("semMutex error:  " + e);
 			}
 
-			//segmentArray[i].dump();
+			//segmentArray[i].checksum=segmentArray[i].computeChecksum();
 			
 			// put each segment into sndBuf
 			sndBuf.putNext(segmentArray[i]);
 			segmentArray[i].timeoutHandler = new TimeoutHandler(sndBuf,segmentArray[i],socket,dst_ip,dst_port);
 			// send using udp_send()
-			System.out.println("Nikhil segnumber:"+segmentArray[i].seqNum);
 			Utility.udp_send(segmentArray[i],socket,dst_ip,dst_port);
 
 			// schedule timeout for segment(s)
 			try {
 				sndBuf.semMutex.acquire();
 				if (protocol == GBN && (segmentArray[i].seqNum==sndBuf.base)) {
-					System.out.println("Timeout started in send()");
 					try {
 						timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler,RTO);
 					} catch (Exception e) {
@@ -130,7 +129,13 @@ public class RDT {
 					
 				}
 				else if (protocol == SR) {
-
+					System.out.println("SR Timeout started in send()");
+					try {
+						System.out.println("Scheduled timeout for: "+(sndBuf.next-1));
+						timer.schedule(sndBuf.buf[(sndBuf.next-1)%sndBuf.size].timeoutHandler,RTO);
+					} catch (Exception e) {
+						System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[(sndBuf.next-1)%sndBuf.size].seqNum);
+					}
 				}
 				sndBuf.semMutex.release();
 			} catch(InterruptedException e) {
@@ -217,6 +222,7 @@ class RDTBuffer {
 			semFull.acquire();
 			semMutex.acquire(); // wait for mutex 
 				seg = buf[base%size];
+				buf[base%size] = null;
 				base++;  
 			semMutex.release();
 			semEmpty.release();
@@ -231,6 +237,26 @@ class RDTBuffer {
 	// used by receiver in Selective Repeat
 	public void putSeqNum (RDTSegment seg) {
 		// ***** compelte
+		try {
+			semEmpty.acquire(); // wait for an empty slot 
+			semMutex.acquire(); // wait for mutex 
+				buf[seg.seqNum%size] = seg;
+				if (seg.seqNum == base) {
+					semFull.release(); // increase #of full slots
+					for (int i=base; i<base+size-1; i++) {
+						if (buf[(i+1)%size] !=null && buf[i%size].seqNum == buf[(i+1)%size].seqNum-1) {
+							semFull.release(); // increase #of full slots
+						}
+						else {
+							break;
+						}
+					}
+				}
+			semMutex.release();
+			
+		} catch(InterruptedException e) {
+			System.out.println("Buffer put(): " + e);
+		}
 
 	}
 	
@@ -283,14 +309,15 @@ class ReceiverThread extends Thread {
 			
 			makeSegment(segment, payload);
 			/*if (!segment.isValid()) {
+				System.out.println("NOT VALID");
 				continue;
 			}*/
 			if (segment.containsAck() && (RDT.protocol == RDT.GBN)) {
-				if (segment.ackNum == sndBuf.base) {
+				if (segment.ackNum >= sndBuf.base) {
 					RDTSegment segmentToCancel = sndBuf.getNext();
 					segmentToCancel.timeoutHandler.cancel();
+					System.out.println("Timer cancelled for segment with seqNum:" +segmentToCancel.seqNum);
 					try {
-						System.out.println("Schedule timer in receivethread");
 						sndBuf.semMutex.acquire();
 						try {
 							RDT.timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler, RDT.RTO);
@@ -306,7 +333,32 @@ class ReceiverThread extends Thread {
 				continue;
 			}
 			else if (segment.containsAck() && (RDT.protocol == RDT.SR)) {
-
+				System.out.println("Nikhil");
+				try {
+					sndBuf.semMutex.acquire();
+					if (segment.ackNum >= sndBuf.base && segment.ackNum<sndBuf.next) {
+						sndBuf.buf[segment.ackNum%sndBuf.size].ackReceived = true;
+						sndBuf.buf[segment.ackNum%sndBuf.size].timeoutHandler.cancel();
+						System.out.println("Timer cancelled for segment with seqNum:" +sndBuf.buf[segment.ackNum%sndBuf.size].seqNum);
+					}
+					sndBuf.semMutex.release();
+				} catch (InterruptedException e) {
+					System.out.println("receivethread timer error: " + e);
+				}
+				if (segment.ackNum == sndBuf.base) {
+					//TODO: loop to smallest unacked packet
+					for (int i=sndBuf.base; i<sndBuf.size; i++) {
+						if (sndBuf.buf[i%sndBuf.size] !=null && sndBuf.buf[i%sndBuf.size].ackReceived) {
+							System.out.println("Incremented sndBuf base");
+							sndBuf.getNext();
+						}
+						else {
+							break;
+						}
+					}
+					
+				}
+				continue;
 			}
 			if (segment.containsData() && (RDT.protocol == RDT.GBN)) {
 				RDTSegment ackSegment = new RDTSegment();
@@ -326,7 +378,26 @@ class ReceiverThread extends Thread {
 
 			} 
 			else if (segment.containsData() && (RDT.protocol == RDT.SR)) {
-
+				RDTSegment ackSegment = new RDTSegment();
+				if (segment.seqNum >= rcvBuf.base && segment.seqNum <(rcvBuf.base+rcvBuf.size)) {
+					System.out.println("inside window: "+segment.seqNum+" base: "+rcvBuf.base);
+					rcvBuf.putSeqNum(segment);
+					ackSegment.seqNum = ackSequenceNumber;
+					ackSequenceNumber++;
+					ackSegment.ackNum=segment.seqNum;
+					ackSegment.flags = RDTSegment.FLAGS_ACK;
+					Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
+				}
+				else if (segment.seqNum >= (rcvBuf.base-rcvBuf.size) && segment.seqNum <rcvBuf.base) {
+					System.out.println("Outside window: "+segment.seqNum);
+					ackSegment.seqNum = ackSequenceNumber;
+					ackSequenceNumber++;
+					ackSegment.ackNum=segment.seqNum;
+					ackSegment.flags = RDTSegment.FLAGS_ACK;
+					Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
+				}
+				
+				continue;
 			}
 
 		}

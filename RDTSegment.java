@@ -1,3 +1,4 @@
+/*Nikhil Gaba. nga11@sfu.ca. Student #: 301 100 455*/
 /**
  * 
  * @author mohamed
@@ -95,6 +96,7 @@ public class RDTSegment {
         
         for (int i=0; i<length;i++)
             csum += (0xff & data[i]);
+         csum = ~csum;
         
         return (0xff & csum);
 	}
