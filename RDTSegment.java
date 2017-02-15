@@ -101,8 +101,14 @@ public class RDTSegment {
         return (0xff & csum);
 	}
 	public boolean isValid() {
-		// we use 8-bitchecksum
-        return ((0xff==computeChecksum()) ? true:false) ;
+		boolean result = false;
+		int temp=checksum;
+		checksum=0;
+		if (temp == computeChecksum()) {
+			result = true;
+		}
+		checksum=temp;
+		return result;
 	}
 	
 	// converts this seg to a series of bytes

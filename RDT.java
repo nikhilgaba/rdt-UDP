@@ -14,17 +14,17 @@ import java.lang.Math;
 
 public class RDT {
 
-	public static final int MSS = 100; // Max segement size in bytes
-	public static final int RTO = 500; // Retransmission Timeout in msec
 	public static final int ERROR = -1;
 	public static final int MAX_BUF_SIZE = 3;  
 	public static final int GBN = 1;   // Go back N protocol
 	public static final int SR = 2;    // Selective Repeat
-	public static final int protocol = SR;
 	
 	public static double lossRate = 0.0;
 	public static Random random = new Random(); 
 	public static Timer timer = new Timer();	
+	public static int protocol = SR;
+	public static int MSS = 100; // Max segement size in bytes
+	public static int RTO = 500; // Retransmission Timeout in msec
 	
 	private DatagramSocket socket; 
 	private InetAddress dst_ip;
@@ -77,6 +77,12 @@ public class RDT {
 	}
 	
 	public static void setLossRate(double rate) {lossRate = rate;}
+
+	public static void setMSS(int mss) {MSS = mss;}
+
+	public static void setProtocol(int protocol_) {protocol = protocol_;}
+
+	public static void setRTO(int rto) {RTO = rto;}
 	
 	// called by app
 	// returns total number of sent bytes  
@@ -109,7 +115,7 @@ public class RDT {
 				System.out.println("semMutex error:  " + e);
 			}
 
-			//segmentArray[i].checksum=segmentArray[i].computeChecksum();
+			segmentArray[i].checksum=segmentArray[i].computeChecksum();
 			
 			// put each segment into sndBuf
 			sndBuf.putNext(segmentArray[i]);
@@ -124,17 +130,15 @@ public class RDT {
 					try {
 						timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler,RTO);
 					} catch (Exception e) {
-						System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
+						//System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
 					}
 					
 				}
 				else if (protocol == SR) {
-					System.out.println("SR Timeout started in send()");
 					try {
-						System.out.println("Scheduled timeout for: "+(sndBuf.next-1));
 						timer.schedule(sndBuf.buf[(sndBuf.next-1)%sndBuf.size].timeoutHandler,RTO);
 					} catch (Exception e) {
-						System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[(sndBuf.next-1)%sndBuf.size].seqNum);
+						//System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[(sndBuf.next-1)%sndBuf.size].seqNum);
 					}
 				}
 				sndBuf.semMutex.release();
@@ -308,21 +312,20 @@ class ReceiverThread extends Thread {
 			}
 			
 			makeSegment(segment, payload);
-			/*if (!segment.isValid()) {
-				System.out.println("NOT VALID");
+			if (!segment.isValid()) {
 				continue;
-			}*/
+			}
 			if (segment.containsAck() && (RDT.protocol == RDT.GBN)) {
 				if (segment.ackNum >= sndBuf.base) {
 					RDTSegment segmentToCancel = sndBuf.getNext();
 					segmentToCancel.timeoutHandler.cancel();
-					System.out.println("Timer cancelled for segment with seqNum:" +segmentToCancel.seqNum);
+					//System.out.println("Timer cancelled for segment with seqNum:" +segmentToCancel.seqNum);
 					try {
 						sndBuf.semMutex.acquire();
 						try {
 							RDT.timer.schedule(sndBuf.buf[sndBuf.base%sndBuf.size].timeoutHandler, RDT.RTO);
 						} catch (Exception e) {
-							System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
+							//System.out.println("Timer already scheduled for segment with seqNum: "+sndBuf.buf[sndBuf.base%sndBuf.size].seqNum);
 						}
 						sndBuf.semMutex.release();
 					} catch (InterruptedException e) {
@@ -333,13 +336,12 @@ class ReceiverThread extends Thread {
 				continue;
 			}
 			else if (segment.containsAck() && (RDT.protocol == RDT.SR)) {
-				System.out.println("Nikhil");
 				try {
 					sndBuf.semMutex.acquire();
-					if (segment.ackNum >= sndBuf.base && segment.ackNum<sndBuf.next) {
+					if (segment.ackNum >= sndBuf.base && segment.ackNum<(sndBuf.base+sndBuf.size)) {
 						sndBuf.buf[segment.ackNum%sndBuf.size].ackReceived = true;
 						sndBuf.buf[segment.ackNum%sndBuf.size].timeoutHandler.cancel();
-						System.out.println("Timer cancelled for segment with seqNum:" +sndBuf.buf[segment.ackNum%sndBuf.size].seqNum);
+						//System.out.println("Timer cancelled for segment with seqNum:" +sndBuf.buf[segment.ackNum%sndBuf.size].seqNum);
 					}
 					sndBuf.semMutex.release();
 				} catch (InterruptedException e) {
@@ -347,9 +349,8 @@ class ReceiverThread extends Thread {
 				}
 				if (segment.ackNum == sndBuf.base) {
 					//TODO: loop to smallest unacked packet
-					for (int i=sndBuf.base; i<sndBuf.size; i++) {
+					for (int i=sndBuf.base; i<(sndBuf.base+sndBuf.size); i++) {
 						if (sndBuf.buf[i%sndBuf.size] !=null && sndBuf.buf[i%sndBuf.size].ackReceived) {
-							System.out.println("Incremented sndBuf base");
 							sndBuf.getNext();
 						}
 						else {
@@ -373,6 +374,7 @@ class ReceiverThread extends Thread {
 				ackSegment.seqNum = ackSequenceNumber;
 				ackSequenceNumber++;
 				ackSegment.flags = RDTSegment.FLAGS_ACK;
+				ackSegment.checksum=ackSegment.computeChecksum();
 				Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
 				continue;
 
@@ -380,20 +382,20 @@ class ReceiverThread extends Thread {
 			else if (segment.containsData() && (RDT.protocol == RDT.SR)) {
 				RDTSegment ackSegment = new RDTSegment();
 				if (segment.seqNum >= rcvBuf.base && segment.seqNum <(rcvBuf.base+rcvBuf.size)) {
-					System.out.println("inside window: "+segment.seqNum+" base: "+rcvBuf.base);
 					rcvBuf.putSeqNum(segment);
 					ackSegment.seqNum = ackSequenceNumber;
 					ackSequenceNumber++;
 					ackSegment.ackNum=segment.seqNum;
 					ackSegment.flags = RDTSegment.FLAGS_ACK;
+					ackSegment.checksum=ackSegment.computeChecksum();
 					Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
 				}
 				else if (segment.seqNum >= (rcvBuf.base-rcvBuf.size) && segment.seqNum <rcvBuf.base) {
-					System.out.println("Outside window: "+segment.seqNum);
 					ackSegment.seqNum = ackSequenceNumber;
 					ackSequenceNumber++;
 					ackSegment.ackNum=segment.seqNum;
 					ackSegment.flags = RDTSegment.FLAGS_ACK;
+					ackSegment.checksum=ackSegment.computeChecksum();
 					Utility.udp_send(ackSegment,socket,dst_ip,dst_port);
 				}
 				
