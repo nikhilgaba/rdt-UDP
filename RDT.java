@@ -22,7 +22,7 @@ public class RDT {
 	public static double lossRate = 0.0;
 	public static Random random = new Random(); 
 	public static Timer timer = new Timer();	
-	public static int protocol = SR;
+	public static int protocol = GBN;
 	public static int MSS = 100; // Max segement size in bytes
 	public static int RTO = 500; // Retransmission Timeout in msec
 	
